@@ -1,0 +1,222 @@
+--creating tables to import various datasets
+
+drop table if exists order_details
+
+create table order_details(
+order_details_id serial primary key,
+order_id int not null,
+pizza_id text not null,
+quantity int not null
+);
+
+select * from order_details
+
+drop table if exists orders
+
+create table orders(
+order_id serial primary key,
+date date not null,
+time time not null
+);
+
+select * from orders
+
+drop table if exists pizza_types
+
+create table pizza_types(
+pizza_type_id		text not null,		
+name		varchar(100) not null,		
+category		varchar(50)	not null,	
+ingredients		varchar(200) not null		
+);
+
+select * from pizza_types 
+
+drop table if exists pizzas
+
+create table pizzas(
+pizza_id	varchar(100) not null,
+pizza_type_id	varchar(100) not null,
+size	varchar(100) not null,
+price	float not null
+);
+
+select * from pizzas
+
+-- Basic Queries
+
+--retrieve the total number of orders placed
+
+select sum(quantity) as Total_Orders_Placed from order_details
+
+--insight
+--A total of 49,574 pizzas were sold.
+--This indicates healthy and consistent demand.
+
+--Calculate the total revenue generated from pizza sales.
+
+select round(sum(order_details.quantity*pizzas.price)::numeric, 2) as total_revenue
+from order_details join pizzas
+on pizzas.pizza_id=order_details.pizza_id
+
+--insight
+--The business generated approximately ₹817,860.05 in total pizza sales,
+--representing strong market potential.
+
+--Identify the highest-priced pizza.
+select * from pizzas
+
+select  pt.name,p.price
+from pizzas p join pizza_types pt
+ON p.pizza_type_id = pt.pizza_type_id
+order by p.price desc
+limit 1
+
+--The “Greek” pizza is the most expensive, priced at ₹35.95
+--It’s ideal for upselling premium customers.
+
+--Identify the most common pizza size ordered.
+
+select pizzas.size, count(order_details.order_details_id)as order_id
+from pizzas join order_details
+on pizzas.pizza_id = order_details.pizza_id
+group by pizzas.size order by order_id desc
+limit 1
+
+--The Large size was ordered most frequently, with 18,526 orders,
+--showing it hits the sweet spot for most customers
+
+--List the top 5 most ordered pizza types along with their quantities.
+
+select pizza_types.name,
+sum(order_details.quantity) as quantity
+from pizza_types join pizzas
+on pizzas.pizza_type_id=pizza_types.pizza_type_id
+join order_details
+on order_details.pizza_id=pizzas.pizza_id
+group by pizza_types.name
+order by quantity desc
+limit 5
+
+--Intermediate Queries
+--Join the necessary tables to find the total quantity of each pizza category ordered.
+
+select pizza_types.category,
+sum(order_details.quantity) as quantity
+from pizza_types join pizzas
+on pizzas.pizza_type_id=pizza_types.pizza_type_id
+join order_details
+on order_details.pizza_id=pizzas.pizza_id
+group by pizza_types.category
+order by quantity desc
+
+--Quantity sold per category	
+
+Classic: 14,888 pizzas
+Supreme: 11,987 pizzas
+Veggie: 11,649 pizzas
+Chicken: 11050
+--Classic and Veggie pizzas account for over 54% of total orders — 
+--a sign to optimize marketing and inventory around them. |
+
+
+--Determine the distribution of orders by hour of the day.
+
+select hour(time) as hour, count(order_id) as order_count from orders
+group by hour(time);
+
+
+SELECT EXTRACT(HOUR FROM time) AS hour,
+       COUNT(order_id) AS order_count
+FROM orders
+GROUP BY hour
+ORDER BY hour;
+
+--Staffing and kitchen operations should be scaled up
+--between 11 AM–2 PM and 5 PM–7 PM to handle peak demand.
+
+--Promotions or discounts can be scheduled around off-peak hours
+--(e.g., 3–5 PM or after 9 PM) to improve utilization during slower periods.
+
+
+--Join relevant tables to find the category-wise distribution of pizzas.
+select category,count(name) from pizza_types
+group by category
+
+
+--Group the orders by date and calculate the average number of pizzas ordered per day.
+select * from orders
+
+select round(avg(quantity),0) from
+(select orders.date,sum(order_details.quantity) as quantity
+from orders join order_details
+on orders.order_id=order_details.order_id
+group by orders.date) as order_quantity
+
+--Determine the top 3 most ordered pizza types based on revenue.
+
+select pizza_types.name,
+sum(order_details.quantity*pizzas.price) as revenue
+from pizza_types join pizzas
+on pizzas.pizza_type_id = pizza_types.pizza_type_id
+join order_details
+on order_details.pizza_id= pizzas.pizza_id
+group by pizza_types.name 
+order by revenue desc
+limit 3;
+
+--insight
+--They should be flagged as premium bestsellers and highlighted in bundles, 
+--recommendations, and promotional banners.
+
+--Inventory, sourcing, and supply chain planning should ensure uninterrupted availability
+--of these high-margin items.
+
+--advanced 
+--Calculate the percentage contribution of each pizza type to total revenue.
+SELECT 
+    pizza_types.category,
+    ROUND(
+        SUM(order_details.quantity * pizzas.price)::numeric / (
+            SELECT SUM(order_details.quantity * pizzas.price)::numeric
+            FROM order_details
+            JOIN pizzas ON pizzas.pizza_id = order_details.pizza_id
+        ) * 100, 
+    2) AS revenue_percentage
+FROM pizza_types
+JOIN pizzas ON pizza_types.pizza_type_id = pizzas.pizza_type_id
+JOIN order_details ON order_details.pizza_id = pizzas.pizza_id
+GROUP BY pizza_types.category
+ORDER BY revenue_percentage DESC;
+
+
+--Analyze the cumulative revenue generated over time.
+SELECT 
+    order_date,
+    SUM(revenue) OVER (ORDER BY order_date) AS cum_revenue
+FROM (
+    SELECT 
+        orders.date AS order_date,
+        SUM(order_details.quantity * pizzas.price) AS revenue
+    FROM order_details
+    JOIN pizzas ON order_details.pizza_id = pizzas.pizza_id
+    JOIN orders ON orders.order_id = order_details.order_id
+    GROUP BY orders.date
+) AS sales
+ORDER BY order_date;
+
+--Determine the top 3 most ordered pizza types based on revenue for each pizza category
+SELECT *
+FROM (
+    SELECT 
+        pizza_types.category, 
+        pizza_types.name,
+        SUM(order_details.quantity * pizzas.price) AS revenue,
+        RANK() OVER (PARTITION BY pizza_types.category ORDER BY SUM(order_details.quantity * pizzas.price) DESC) AS rn
+    FROM pizza_types
+    JOIN pizzas ON pizza_types.pizza_type_id = pizzas.pizza_type_id
+    JOIN order_details ON order_details.pizza_id = pizzas.pizza_id
+    GROUP BY pizza_types.category, pizza_types.name
+) AS ranked
+WHERE rn <= 3
+ORDER BY category, revenue DESC;
